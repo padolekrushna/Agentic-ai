@@ -1,0 +1,54 @@
+# ✅ Install required packages
+!pip install --quiet langchain langchain-huggingface duckduckgo-search wikipedia gradio transformers huggingface_hub
+
+# ✅ Imports
+import os
+import gradio as gr
+from langchain_huggingface import HuggingFaceEndpoint
+from langchain_huggingface import ChatHuggingFace
+from langchain.agents import Tool, initialize_agent, AgentType
+from langchain.tools import DuckDuckGoSearchRun, WikipediaQueryRun
+
+# ✅ Set your HF token (with Read + Inference permissions)
+os.environ["HUGGINGFACEHUB_API_TOKEN"] = "hf_your_token_here"
+
+# ✅ Setup approved Hugging Face endpoint model
+llm = HuggingFaceEndpoint(
+    repo_id="mistralai/Mistral-7B-Instruct-v0.2",  # free, reliable, supported
+    huggingfacehub_api_token=os.getenv("HUGGINGFACEHUB_API_TOKEN"),
+    max_new_tokens=256,
+    temperature=0.1,
+    do_sample=False,
+)
+
+chat_llm = ChatHuggingFace(llm=llm, verbose=False)
+
+# ✅ Tools setup
+search = DuckDuckGoSearchRun()
+wiki = WikipediaQueryRun()
+
+tools = [
+    Tool(name="Search", func=search.run, description="Search the web quickly"),
+    Tool(name="Wiki", func=wiki.run, description="Get factual info from Wikipedia")
+]
+
+# ✅ Initialize agent
+agent = initialize_agent(
+    tools=tools,
+    llm=chat_llm,
+    agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
+    verbose=False
+)
+
+# ✅ Gradio UI for easy interaction
+def run_agent(query):
+    response = agent.run(query)
+    return response
+
+gr.Interface(
+    fn=run_agent,
+    inputs=gr.Textbox(label="Your Query"),
+    outputs=gr.Textbox(label="Agent Answer"),
+    title="🧠 Fast Agent: Search + LLM",
+    description="Uses DuckDuckGo and Wikipedia with Mistral‑7B‑Instruct via Hugging Face"
+).launch()
