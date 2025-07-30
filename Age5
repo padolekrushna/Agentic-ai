@@ -1,0 +1,244 @@
+import gradio as gr
+import requests
+import json
+import time
+from typing import Dict, List
+
+class AIAgent:
+    def __init__(self, name: str, role: str, api_endpoint: str, headers: Dict):
+        self.name = name
+        self.role = role
+        self.api_endpoint = api_endpoint
+        self.headers = headers
+    
+    def process(self, query: str) -> str:
+        try:
+            # Add role-specific context to query
+            contextual_query = f"As a {self.role}, {query}"
+            
+            # For Hugging Face Inference API
+            if "huggingface" in self.api_endpoint:
+                payload = {"inputs": contextual_query}
+                response = requests.post(self.api_endpoint, headers=self.headers, json=payload)
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    if isinstance(result, list) and len(result) > 0:
+                        return result[0].get('generated_text', 'No response generated')
+                    return str(result)
+                else:
+                    return f"Error: {response.status_code} - Rate limit or API issue"
+            
+            # For other APIs (Gemini-style)
+            else:
+                payload = {
+                    "contents": [{"parts": [{"text": contextual_query}]}]
+                }
+                response = requests.post(self.api_endpoint, headers=self.headers, json=payload)
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    return result.get('candidates', [{}])[0].get('content', {}).get('parts', [{}])[0].get('text', 'No response')
+                else:
+                    return f"Error: {response.status_code}"
+                    
+        except Exception as e:
+            return f"Agent {self.name} error: {str(e)}"
+
+class MultiAgentSystem:
+    def __init__(self):
+        self.agents = []
+        self.conversation_history = []
+    
+    def add_agent(self, agent: AIAgent):
+        self.agents.append(agent)
+    
+    def route_query(self, query: str) -> str:
+        """Simple routing based on keywords"""
+        query_lower = query.lower()
+        
+        # Route to appropriate agent
+        if any(word in query_lower for word in ['technical', 'bug', 'error', 'code']):
+            return 'technical'
+        elif any(word in query_lower for word in ['billing', 'payment', 'refund', 'price']):
+            return 'billing'
+        elif any(word in query_lower for word in ['general', 'help', 'support', 'info']):
+            return 'support'
+        else:
+            return 'support'  # default
+    
+    def process_query(self, query: str) -> str:
+        if not self.agents:
+            return "No agents available"
+        
+        # Route to appropriate agent
+        agent_type = self.route_query(query)
+        selected_agent = None
+        
+        for agent in self.agents:
+            if agent_type in agent.role.lower():
+                selected_agent = agent
+                break
+        
+        if not selected_agent:
+            selected_agent = self.agents[0]  # fallback
+        
+        # Process with selected agent
+        response = selected_agent.process(query)
+        
+        # Add to conversation history
+        self.conversation_history.append({
+            'query': query,
+            'agent': selected_agent.name,
+            'response': response
+        })
+        
+        return f"**{selected_agent.name}**: {response}"
+
+# Initialize the multi-agent system
+def setup_agents():
+    mas = MultiAgentSystem()
+    
+    # You need to get these API keys:
+    # 1. Hugging Face: Go to https://huggingface.co/settings/tokens
+    # 2. Replace 'YOUR_HF_TOKEN' with your actual token
+    
+    hf_headers = {
+        "Authorization": "Bearer YOUR_HF_TOKEN",
+        "Content-Type": "application/json"
+    }
+    
+    # Free Hugging Face models (no cost, just need free account)
+    # Technical Support Agent
+    tech_agent = AIAgent(
+        name="Tech Support Agent",
+        role="technical support specialist",
+        api_endpoint="https://api-inference.huggingface.co/models/microsoft/DialoGPT-medium",
+        headers=hf_headers
+    )
+    
+    # Billing Support Agent  
+    billing_agent = AIAgent(
+        name="Billing Agent",
+        role="billing and payment specialist",
+        api_endpoint="https://api-inference.huggingface.co/models/microsoft/DialoGPT-medium",
+        headers=hf_headers
+    )
+    
+    # General Support Agent
+    support_agent = AIAgent(
+        name="General Support",
+        role="general customer support representative",
+        api_endpoint="https://api-inference.huggingface.co/models/microsoft/DialoGPT-medium",
+        headers=hf_headers
+    )
+    
+    mas.add_agent(tech_agent)
+    mas.add_agent(billing_agent)
+    mas.add_agent(support_agent)
+    
+    return mas
+
+# Initialize system
+agent_system = setup_agents()
+
+def chat_interface(message, history):
+    """Main chat interface function"""
+    if not message.strip():
+        return history, ""
+    
+    try:
+        # Process query through agent system
+        response = agent_system.process_query(message)
+        
+        # Update history
+        history.append([message, response])
+        
+        return history, ""
+        
+    except Exception as e:
+        error_response = f"System error: {str(e)}"
+        history.append([message, error_response])
+        return history, ""
+
+def get_conversation_summary():
+    """Get summary of recent conversations"""
+    if not agent_system.conversation_history:
+        return "No conversations yet."
+    
+    summary = "Recent Conversations:\n"
+    for i, conv in enumerate(agent_system.conversation_history[-5:], 1):
+        summary += f"{i}. Agent: {conv['agent']}\n   Query: {conv['query'][:50]}...\n\n"
+    
+    return summary
+
+# Create Gradio interface
+with gr.Blocks(title="Multi-Agent AI System") as demo:
+    gr.Markdown("# 🤖 Multi-Agent Customer Support System")
+    gr.Markdown("This system routes your queries to specialized AI agents: Technical Support, Billing, and General Support.")
+    
+    with gr.Row():
+        with gr.Column(scale=3):
+            chatbot = gr.Chatbot(
+                height=400,
+                label="Chat with AI Agents"
+            )
+            
+            msg = gr.Textbox(
+                placeholder="Type your message here...",
+                label="Your Message",
+                lines=2
+            )
+            
+            with gr.Row():
+                submit = gr.Button("Send", variant="primary")
+                clear = gr.Button("Clear Chat")
+        
+        with gr.Column(scale=1):
+            gr.Markdown("### 📊 System Info")
+            
+            summary_btn = gr.Button("Show Recent Activity")
+            summary_output = gr.Textbox(
+                label="Activity Summary",
+                lines=8,
+                interactive=False
+            )
+            
+            gr.Markdown("### 🔧 Setup Instructions")
+            gr.Markdown("""
+            1. Get free Hugging Face token from: https://huggingface.co/settings/tokens
+            2. Replace 'YOUR_HF_TOKEN' in code
+            3. No cost - just free account needed
+            4. Rate limit: ~1000 requests/month
+            """)
+    
+    # Event handlers
+    submit.click(
+        chat_interface,
+        inputs=[msg, chatbot],
+        outputs=[chatbot, msg]
+    )
+    
+    msg.submit(
+        chat_interface,
+        inputs=[msg, chatbot],
+        outputs=[chatbot, msg]
+    )
+    
+    clear.click(
+        lambda: ([], ""),
+        outputs=[chatbot, msg]
+    )
+    
+    summary_btn.click(
+        get_conversation_summary,
+        outputs=summary_output
+    )
+
+# Launch the app
+if __name__ == "__main__":
+    demo.launch(
+        server_name="0.0.0.0",
+        server_port=7860,
+        share=True  # Creates public link
+    )
