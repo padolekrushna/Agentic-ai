@@ -1,68 +1,52 @@
-# ✅ 1. Install dependencies
-!pip install -q langchain duckduckgo-search wikipedia gradio transformers accelerate huggingface_hub
+# ✅ Install Compatible Versions
+!pip install -q langchain==0.1.14 langchain-experimental==0.0.23 duckduckgo-search wikipedia gradio transformers accelerate huggingface_hub
 
-# ✅ 2. Import modules
+# ✅ Imports
 import os
 import gradio as gr
 from langchain.agents import Tool, initialize_agent, AgentType
-from langchain.tools import DuckDuckGoSearchRun, WikipediaQueryRun, PythonREPLTool
+from langchain.tools import DuckDuckGoSearchRun, WikipediaQueryRun
+from langchain_experimental.tools.python.tool import PythonREPLTool  # ✅ CORRECT for this version
 from langchain.llms import HuggingFaceHub
 
-# ✅ 3. Set Hugging Face token
-os.environ["HUGGINGFACEHUB_API_TOKEN"] = "your_huggingface_api_token"  # ⬅️ Replace this!
+# ✅ Hugging Face token
+os.environ["HUGGINGFACEHUB_API_TOKEN"] = "your_huggingface_token_here"
 
-# ✅ 4. Load fast lightweight LLM
+# ✅ Load FLAN-T5
 llm = HuggingFaceHub(
     repo_id="google/flan-t5-small",
     model_kwargs={"temperature": 0.3, "max_length": 256}
 )
 
-# ✅ 5. Set up tools
+# ✅ Setup Tools
 search_tool = DuckDuckGoSearchRun()
 wiki_tool = WikipediaQueryRun()
 math_tool = PythonREPLTool()
 
 tools = [
-    Tool(
-        name="DuckDuckGo Search",
-        func=search_tool.run,
-        description="Search the web quickly"
-    ),
-    Tool(
-        name="Wikipedia",
-        func=wiki_tool.run,
-        description="Get facts from Wikipedia"
-    ),
-    Tool(
-        name="PythonREPL",
-        func=math_tool.run,
-        description="Solve math or simple Python code"
-    )
+    Tool(name="DuckDuckGo Search", func=search_tool.run, description="Search web"),
+    Tool(name="Wikipedia", func=wiki_tool.run, description="Factual info from Wikipedia"),
+    Tool(name="PythonREPL", func=math_tool.run, description="Math or code execution")
 ]
 
-# ✅ 6. Build the agent
-agent = initialize_agent(
-    tools=tools,
-    llm=llm,
-    agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
-    verbose=False  # Set True if you want chain logs
-)
+# ✅ Create Agent
+agent = initialize_agent(tools, llm, agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION, verbose=False)
 
-# ✅ 7. Define Gradio interface logic
+# ✅ Gradio Interface
 def run_agent(query):
     try:
         result = agent.run(query)
         with open("saved_answers.txt", "a", encoding="utf-8") as f:
-            f.write(f"\n\nUser Query: {query}\nAgent Answer: {result}\n{'-'*50}")
+            f.write(f"\nUser Query: {query}\nAgent Answer: {result}\n{'-'*40}")
         return result
     except Exception as e:
         return f"❌ Error: {str(e)}"
 
-# ✅ 8. Launch Gradio UI
 gr.Interface(
     fn=run_agent,
-    inputs=gr.Textbox(label="Enter your research query"),
+    inputs=gr.Textbox(label="Your Question"),
     outputs=gr.Textbox(label="Agent's Answer"),
-    title="🚀 RaMARA - Fast Multi-Agent Research Assistant",
-    description="Built with LangChain, FLAN-T5, Wikipedia, and DuckDuckGo tools. Answers saved locally."
+    title="🤖 RaMARA – Fast Multi-Agent AI",
+    description="Powered by LangChain, FLAN-T5, DuckDuckGo, and Wikipedia"
 ).launch()
+    
