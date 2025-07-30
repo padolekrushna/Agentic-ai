@@ -1,0 +1,343 @@
+import gradio as gr
+import requests
+import asyncio
+import json
+from typing import Dict, List, Optional
+import random
+
+class ModernAgent:
+    def __init__(self, name: str, role: str, color: str, apis: Dict):
+        self.name = name
+        self.role = role
+        self.color = color
+        self.apis = apis
+        
+    async def query_api(self, prompt: str, api_name: str, config: Dict) -> Optional[str]:
+        """Query a specific API with error handling"""
+        try:
+            headers = config.get('headers', {})
+            
+            if api_name == 'groq':
+                data = {
+                    "messages": [{"role": "user", "content": f"{self.role}: {prompt}"}],
+                    "model": config.get('model', 'llama-3.1-8b-instant'),
+                    "max_tokens": 150
+                }
+                response = requests.post(config['url'], headers=headers, json=data, timeout=10)
+                if response.status_code == 200:
+                    return response.json()['choices'][0]['message']['content']
+                    
+            elif api_name == 'openrouter':
+                data = {
+                    "model": config.get('model', 'meta-llama/llama-3.1-8b-instruct:free'),
+                    "messages": [{"role": "user", "content": f"{self.role}: {prompt}"}],
+                    "max_tokens": 150
+                }
+                response = requests.post(config['url'], headers=headers, json=data, timeout=10)
+                if response.status_code == 200:
+                    return response.json()['choices'][0]['message']['content']
+                    
+            elif api_name == 'together':
+                data = {
+                    "model": config.get('model', 'meta-llama/Llama-3.2-3B-Instruct-Turbo'),
+                    "messages": [{"role": "user", "content": f"{self.role}: {prompt}"}],
+                    "max_tokens": 150
+                }
+                response = requests.post(config['url'], headers=headers, json=data, timeout=10)
+                if response.status_code == 200:
+                    return response.json()['choices'][0]['message']['content']
+                    
+            elif api_name == 'gemini':
+                data = {
+                    "contents": [{"parts": [{"text": f"As a {self.role}, respond to: {prompt}"}]}]
+                }
+                response = requests.post(config['url'], headers=headers, json=data, timeout=10)
+                if response.status_code == 200:
+                    return response.json()['candidates'][0]['content']['parts'][0]['text']
+                    
+        except Exception as e:
+            return None
+            
+    def get_smart_response(self, query: str) -> str:
+        """Generate contextual responses"""
+        templates = {
+            'tech': [
+                f"🔧 Technical issue detected. For '{query}', I recommend checking system logs and running diagnostics.",
+                f"⚡ This seems like a {query} problem. Let me help you troubleshoot step by step.",
+                f"🛠️ I can assist with this technical challenge. Have you tried clearing cache or restarting the service?"
+            ],
+            'sales': [
+                f"💼 Great question about '{query}'! Our solution can definitely help you achieve your goals.",
+                f"🎯 Based on your interest in '{query}', I can show you exactly how we solve this challenge.",
+                f"📈 I'd love to discuss how '{query}' fits into your business strategy. Let's explore the possibilities!"
+            ],
+            'support': [
+                f"🤝 I'm here to help with '{query}'. Let me guide you through the best approach.",
+                f"✨ Thanks for reaching out about '{query}'. I'll make sure we get this resolved quickly.",
+                f"📋 I understand you need assistance with '{query}'. Here's what I recommend..."
+            ]
+        }
+        
+        role_key = 'tech' if 'tech' in self.role.lower() else 'sales' if 'sales' in self.role.lower() else 'support'
+        return random.choice(templates[role_key])
+        
+    async def respond(self, query: str) -> str:
+        """Main response method with API fallback"""
+        # Try APIs in order of preference
+        for api_name, config in self.apis.items():
+            if config.get('enabled', True):
+                result = await self.query_api(query, api_name, config)
+                if result and len(result.strip()) > 10:
+                    return f"🤖 {result.strip()}"
+        
+        # Fallback to smart response
+        return self.get_smart_response(query)
+
+class AI_MultiAgent_System:
+    def __init__(self):
+        # API Configurations - Add your tokens here
+        self.api_configs = {
+            'groq': {
+                'url': 'https://api.groq.com/openai/v1/chat/completions',
+                'headers': {'Authorization': 'Bearer YOUR_GROQ_TOKEN', 'Content-Type': 'application/json'},
+                'model': 'llama-3.1-8b-instant',
+                'enabled': False  # Set to True when you add token
+            },
+            'openrouter': {
+                'url': 'https://openrouter.ai/api/v1/chat/completions',
+                'headers': {'Authorization': 'Bearer YOUR_OPENROUTER_TOKEN', 'Content-Type': 'application/json'},
+                'model': 'meta-llama/llama-3.1-8b-instruct:free',
+                'enabled': False
+            },
+            'together': {
+                'url': 'https://api.together.ai/v1/completions',
+                'headers': {'Authorization': 'Bearer YOUR_TOGETHER_TOKEN', 'Content-Type': 'application/json'},
+                'model': 'meta-llama/Llama-3.2-3B-Instruct-Turbo',
+                'enabled': False
+            },
+            'gemini': {
+                'url': 'https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key=YOUR_GEMINI_TOKEN',
+                'headers': {'Content-Type': 'application/json'},
+                'enabled': False
+            }
+        }
+        
+        self.agents = [
+            ModernAgent("TechBot", "expert technical support specialist", "🔵", self.api_configs),
+            ModernAgent("SalesBot", "professional sales consultant", "🟢", self.api_configs),
+            ModernAgent("SupportBot", "friendly customer service representative", "🟣", self.api_configs)
+        ]
+        
+        self.stats = {'queries': 0, 'agents_used': {}}
+        
+    def route_query(self, query: str) -> ModernAgent:
+        """Smart routing based on query content"""
+        q = query.lower()
+        
+        # Technical keywords
+        if any(word in q for word in ['error', 'bug', 'technical', 'api', 'code', 'fix', 'install']):
+            return self.agents[0]  # TechBot
+            
+        # Sales keywords  
+        elif any(word in q for word in ['price', 'buy', 'purchase', 'demo', 'trial', 'feature', 'plan']):
+            return self.agents[1]  # SalesBot
+            
+        # Default to support
+        else:
+            return self.agents[2]  # SupportBot
+            
+    async def process_query(self, query: str) -> tuple:
+        """Process query and return response with agent info"""
+        if not query.strip():
+            return "Please enter a question.", "SupportBot", "🟣"
+            
+        agent = self.route_query(query)
+        response = await agent.respond(query)
+        
+        # Update stats
+        self.stats['queries'] += 1
+        self.stats['agents_used'][agent.name] = self.stats['agents_used'].get(agent.name, 0) + 1
+        
+        return response, agent.name, agent.color
+
+# Initialize system
+system = AI_MultiAgent_System()
+
+async def chat_handler(message, history):
+    """Async chat handler"""
+    if not message.strip():
+        return history, ""
+    
+    try:
+        response, agent_name, color = await system.process_query(message)
+        formatted_response = f"{color} **{agent_name}**: {response}"
+        history.append([message, formatted_response])
+        return history, ""
+    except Exception as e:
+        error_msg = f"⚠️ System Error: {str(e)}"
+        history.append([message, error_msg])
+        return history, ""
+
+def sync_chat_handler(message, history):
+    """Sync wrapper for async chat handler"""
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        result = loop.run_until_complete(chat_handler(message, history))
+        loop.close()
+        return result
+    except:
+        # Fallback if async fails
+        if not message.strip():
+            return history, ""
+        
+        agent = system.route_query(message)
+        fallback_response = agent.get_smart_response(message)
+        formatted_response = f"{agent.color} **{agent.name}**: {fallback_response}"
+        history.append([message, formatted_response])
+        return history, ""
+
+def get_system_stats():
+    """Get current system statistics"""
+    if system.stats['queries'] == 0:
+        return "No queries processed yet."
+    
+    stats_text = f"**📊 System Statistics**\n\n"
+    stats_text += f"Total Queries: {system.stats['queries']}\n\n"
+    stats_text += "**Agent Usage:**\n"
+    
+    for agent_name, count in system.stats['agents_used'].items():
+        percentage = (count / system.stats['queries']) * 100
+        stats_text += f"• {agent_name}: {count} ({percentage:.1f}%)\n"
+    
+    return stats_text
+
+# Modern Gradio Interface
+with gr.Blocks(
+    theme=gr.themes.Soft(
+        primary_hue="blue",
+        secondary_hue="green",
+        neutral_hue="slate"
+    ),
+    css="""
+    .gradio-container {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    }
+    .main-header {
+        text-align: center;
+        color: white;
+        margin-bottom: 2rem;
+    }
+    .agent-card {
+        background: rgba(255,255,255,0.1);
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255,255,255,0.2);
+        border-radius: 15px;
+        padding: 1rem;
+        margin: 0.5rem 0;
+    }
+    """,
+    title="🤖 AI Multi-Agent System 2025"
+) as app:
+    
+    gr.HTML("""
+    <div class="main-header">
+        <h1>🚀 AI Multi-Agent System</h1>
+        <p>Powered by Groq, OpenRouter, Together AI & Gemini</p>
+    </div>
+    """)
+    
+    with gr.Row():
+        with gr.Column(scale=3):
+            chatbot = gr.Chatbot(
+                label="💬 Chat with AI Agents",
+                height=450,
+                show_copy_button=True,
+                show_share_button=False,
+                elem_classes=["agent-card"]
+            )
+            
+            with gr.Row():
+                msg_input = gr.Textbox(
+                    placeholder="Type your message here... (e.g., 'I have an API error' or 'What are your pricing plans?')",
+                    label="",
+                    scale=5,
+                    lines=1
+                )
+                send_btn = gr.Button("Send 🚀", variant="primary", scale=1)
+            
+            gr.Examples(
+                examples=[
+                    "I'm getting a 404 error in my API calls",
+                    "What are your pricing plans and features?", 
+                    "How do I reset my account password?",
+                    "Can you help me integrate your API?",
+                    "I want to upgrade my subscription"
+                ],
+                inputs=msg_input,
+                label="💡 Try these examples:"
+            )
+            
+        with gr.Column(scale=1):
+            with gr.Group(elem_classes=["agent-card"]):
+                gr.Markdown("### 🤖 Active Agents")
+                gr.Markdown("""
+                🔵 **TechBot** - Technical Support
+                🟢 **SalesBot** - Sales & Pricing  
+                🟣 **SupportBot** - General Help
+                """)
+            
+            with gr.Group(elem_classes=["agent-card"]):
+                stats_btn = gr.Button("📊 Refresh Stats", variant="secondary")
+                stats_display = gr.Markdown("Click to view statistics")
+            
+            with gr.Group(elem_classes=["agent-card"]):
+                gr.Markdown("### ⚙️ API Setup")
+                gr.Markdown("""
+                **Current**: Smart fallback responses
+                
+                **Enable Full AI**:
+                1. Get free tokens from:
+                   - [Groq](https://console.groq.com)
+                   - [OpenRouter](https://openrouter.ai/keys)
+                   - [Together AI](https://api.together.ai)
+                   - [Google AI](https://ai.google.dev)
+                2. Add tokens to code
+                3. Set `enabled: True`
+                """)
+    
+    with gr.Row():
+        clear_btn = gr.Button("🗑️ Clear Chat", variant="secondary")
+    
+    # Event handlers
+    send_btn.click(
+        sync_chat_handler,
+        inputs=[msg_input, chatbot],
+        outputs=[chatbot, msg_input]
+    )
+    
+    msg_input.submit(
+        sync_chat_handler,
+        inputs=[msg_input, chatbot], 
+        outputs=[chatbot, msg_input]
+    )
+    
+    clear_btn.click(
+        lambda: ([], ""),
+        outputs=[chatbot, msg_input]
+    )
+    
+    stats_btn.click(
+        get_system_stats,
+        outputs=stats_display
+    )
+
+if __name__ == "__main__":
+    print("🚀 Starting Modern AI Multi-Agent System...")
+    print("🌐 Access at: http://localhost:7860")
+    app.launch(
+        server_name="0.0.0.0",
+        server_port=7860,
+        share=True,
+        show_error=False
+    )
