@@ -1,0 +1,47 @@
+# ✅ Install dependencies
+!pip install -q langchain duckduckgo-search gradio huggingface_hub
+
+# ✅ Imports
+import os, gradio as gr
+from langchain.agents import Tool, initialize_agent, AgentType
+from langchain.llms import HuggingFaceHub
+from langchain.tools import DuckDuckGoSearchRun
+
+# ✅ Set your Hugging Face token (must support text-generation)
+os.environ["HUGGINGFACEHUB_API_TOKEN"] = "hf_YourRealTokenHere"
+
+# ✅ Use Falcon 7B - supports text generation
+llm = HuggingFaceHub(
+    repo_id="tiiuae/falcon-7b-instruct",
+    model_kwargs={"temperature": 0.5, "max_new_tokens": 256}
+)
+
+# ✅ Web search tool (takes simple string)
+search = DuckDuckGoSearchRun()
+tools = [
+    Tool(
+        name="Search",
+        func=search.run,
+        description="Useful for answering general knowledge or current events questions"
+    )
+]
+
+# ✅ Build agent with one tool
+agent = initialize_agent(
+    tools=tools,
+    llm=llm,
+    agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
+    verbose=False
+)
+
+# ✅ Gradio UI
+def agent_query(q):
+    return agent.run(q)
+
+gr.Interface(
+    fn=agent_query,
+    inputs=gr.Textbox(label="Ask something"),
+    outputs=gr.Textbox(label="Answer"),
+    title="LangChain Agent (Falcon + DuckDuckGo)",
+    description="Fully working agent with search and HuggingFace Falcon 7B."
+).launch()
